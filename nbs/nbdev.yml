@@ -1,0 +1,9 @@
+project:
+  output-dir: _docs
+
+website:
+  title: "demystifyopenclaw"
+  site-url: "https://ninjalabo.github.io/demystifyopenclaw"
+  description: ""
+  repo-branch: main
+  repo-url: "https://github.com/ninjalabo/demystifyopenclaw"
