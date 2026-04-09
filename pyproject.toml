@@ -15,7 +15,9 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
 ]
-dependencies = []
+dependencies = [
+    "pandas"
+]
 
 [project.urls]
 Repository = "https://github.com/ninjalabo/demystifyopenclaw"
