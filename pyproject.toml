@@ -16,7 +16,8 @@ classifiers = [
     "Programming Language :: Python :: 3 :: Only",
 ]
 dependencies = [
-    "pandas"
+    "pandas",
+    "python-dotenv",
 ]
 
 [project.urls]
