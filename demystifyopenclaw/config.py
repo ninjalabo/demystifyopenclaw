@@ -9,13 +9,13 @@ __all__ = ['LLM_PROVIDER', 'LLM_BASE_API', 'LLM_API_KEY', 'LLM_MODEL', 'LLM_MAX_
            'ENV_API_BUDGET_EXPECTED_USD', 'ENV_API_BUDGET_HARD_MAX_USD', 'verify_environment_variables',
            'adapt_nanobot_configuration']
 
-# %% ../nbs/00_setup.ipynb #43345c25
+# %% ../nbs/00_setup.ipynb #48a0297d
 import json
 import os
 from dotenv import load_dotenv
 from pathlib import Path
 
-# %% ../nbs/00_setup.ipynb #db21a477
+# %% ../nbs/00_setup.ipynb #51c40e6e
 # Load secrets from the .env file into the environment
 load_dotenv()
 
@@ -46,7 +46,7 @@ DATA_LOG_DIR = os.path.join(DATA_DIR, "logs")
 ENV_API_BUDGET_EXPECTED_USD = 30
 ENV_API_BUDGET_HARD_MAX_USD = 50
 
-# %% ../nbs/00_setup.ipynb #c5d65c5f
+# %% ../nbs/00_setup.ipynb #d62ef756
 def verify_environment_variables():
     required_vars = [
         "LLM_API_KEY",
@@ -60,7 +60,7 @@ def verify_environment_variables():
     else:
         print("All required environment variables are set.")
 
-# %% ../nbs/00_setup.ipynb #aca1958d
+# %% ../nbs/00_setup.ipynb #c2101fe5
 def adapt_nanobot_configuration(config_file_path: str = None):
     """
     Adapt the nanobot configuration based on the current environment variables and conditions.
