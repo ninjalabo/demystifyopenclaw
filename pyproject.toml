@@ -18,6 +18,7 @@ classifiers = [
 dependencies = [
     "pandas",
     "python-dotenv",
+    "nanobot-ai"
 ]
 
 [project.urls]
