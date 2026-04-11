@@ -7,13 +7,14 @@ __all__ = ['LLM_PROVIDER', 'LLM_BASE_API', 'LLM_API_KEY', 'LLM_MODEL', 'LLM_MAX_
            'WEB_SEARCH_ENGINE', 'WEB_SEARCH_BASE_URL', 'WEB_SEARCH_API_KEY', 'WEB_SEARCH_MAX_RESULTS',
            'WEB_SEARCH_TIMEOUT', 'ENV_TASK_SET', 'ENV_LOG_FORMAT', 'DATA_DIR', 'DATA_LOG_DIR',
            'ENV_API_BUDGET_EXPECTED_USD', 'ENV_API_BUDGET_HARD_MAX_USD', 'verify_environment_variables',
-           'adapt_nanobot_configuration']
+           'adapt_nanobot_configuration', 'verify_nanobot_configuration', 'verify_nanobot_setup']
 
 # %% ../nbs/00_setup.ipynb #48a0297d
 import json
 import os
 from dotenv import load_dotenv
 from pathlib import Path
+from nanobot import Nanobot
 
 # %% ../nbs/00_setup.ipynb #51c40e6e
 # Load secrets from the .env file into the environment
@@ -106,3 +107,54 @@ def adapt_nanobot_configuration(config_file_path: str = None):
     with open(config_file_path, 'w') as f:
         json.dump(config, f, indent=4)
     print(f"Configuration adapted and saved to {config_file_path}")
+
+# %% ../nbs/00_setup.ipynb #6b5ebee5
+def verify_nanobot_configuration(config_file_path: str = None):
+    """
+    Verify that the nanobot configuration has been correctly adapted based on the current environment variables and conditions.
+    
+    This function can be extended to read a configuration file or use a configuration dictionary to check that the settings are correct.
+    
+    Args:
+        config_file_path (str, optional): Path to a configuration file to verify. If None, take the default file path.
+    """
+    if config_file_path is None:
+        home_dir = Path.home()
+        config_file_path = home_dir / ".nanobot" / "config.json"
+        if not config_file_path.exists():
+            raise FileNotFoundError(f"Configuration file not found at {config_file_path}")
+        
+    # Load existing configuration
+    with open(config_file_path, 'r', encoding='utf-8') as f:
+        config = json.load(f)
+
+    # Verify agent configuration
+    assert config["agents"]["defaults"]["model"] == LLM_MODEL, "LLM_MODEL does not match the expected value."
+    assert config["agents"]["defaults"]["provider"] == LLM_PROVIDER, "LLM_PROVIDER does not match the expected value."
+    assert config["agents"]["defaults"]["contextWindowTokens"] == LLM_CONTEXT_WINDOW, "LLM_CONTEXT_WINDOW does not match the expected value."
+    assert config["agents"]["defaults"]["maxTokens"] == LLM_MAX_TOKENS, "LLM_MAX_TOKENS does not match the expected value."
+    assert config["agents"]["defaults"]["temperature"] == LLM_TEMPERATURE, "LLM_TEMPERATURE does not match the expected value."
+
+    # Verify provider configuration
+    assert config["providers"]["ollama"]["apiKey"] == LLM_API_KEY, "LLM_API_KEY does not match the expected value."
+    assert config["providers"]["ollama"]["baseUrl"] == LLM_BASE_API, "LLM_BASE_API does not match the expected value."
+    # Verify web search configuration
+    assert config["tools"]["web"]["search"]["provider"] == WEB_SEARCH_ENGINE, "WEB_SEARCH_ENGINE does not match the expected value."
+    assert config["tools"]["web"]["search"]["baseUrl"] == WEB_SEARCH_BASE_URL, "WEB_SEARCH_BASE_URL does not match the expected value."
+    assert config["tools"]["web"]["search"]["apiKey"] == WEB_SEARCH_API_KEY, "WEB_SEARCH_API_KEY does not match the expected value."
+    assert config["tools"]["web"]["search"]["maxResults"] == WEB_SEARCH_MAX_RESULTS, "WEB_SEARCH_MAX_RESULTS does not match the expected value."
+    assert config["tools"]["web"]["search"]["timeout"] == WEB_SEARCH_TIMEOUT, "WEB_SEARCH_TIMEOUT does not match the expected value."   
+
+    print("Configuration verification successful. All settings match the expected values.")
+
+# %% ../nbs/00_setup.ipynb #9fddc322
+async def verify_nanobot_setup():
+    """
+    Verify that the nanobot setup is correct by running a test script
+    """
+    # Here you can implement a test script that runs a simple agent task and checks the output
+    # For example, you could run a simple query and check if the response is as expected
+    bot = Nanobot.from_config()
+    result = await bot.run("What is the capital of France? Answer (just the city name): ")
+    assert "paris" in result.content.lower(), "The response does not contain the expected answer."
+    print("Nanobot setup verification successful. The agent is responding correctly.")
