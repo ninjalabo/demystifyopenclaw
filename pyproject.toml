@@ -15,7 +15,11 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
 ]
-dependencies = []
+dependencies = [
+    "pandas",
+    "python-dotenv",
+    "nanobot-ai"
+]
 
 [project.urls]
 Repository = "https://github.com/ninjalabo/demystifyopenclaw"

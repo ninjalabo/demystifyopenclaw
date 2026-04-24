@@ -5,4 +5,12 @@ d = { 'settings': { 'branch': 'main',
                 'doc_host': 'https://ninjalabo.github.io',
                 'git_url': 'https://github.com/ninjalabo/demystifyopenclaw',
                 'lib_path': 'demystifyopenclaw'},
-  'syms': {'demystifyopenclaw.core': {'demystifyopenclaw.core.foo': ('core.html#foo', 'demystifyopenclaw/core.py')}}}
+  'syms': { 'demystifyopenclaw.config': { 'demystifyopenclaw.config.adapt_nanobot_configuration': ( 'setup.html#adapt_nanobot_configuration',
+                                                                                                    'demystifyopenclaw/config.py'),
+                                          'demystifyopenclaw.config.verify_environment_variables': ( 'setup.html#verify_environment_variables',
+                                                                                                     'demystifyopenclaw/config.py'),
+                                          'demystifyopenclaw.config.verify_nanobot_configuration': ( 'setup.html#verify_nanobot_configuration',
+                                                                                                     'demystifyopenclaw/config.py'),
+                                          'demystifyopenclaw.config.verify_nanobot_setup': ( 'setup.html#verify_nanobot_setup',
+                                                                                             'demystifyopenclaw/config.py')},
+            'demystifyopenclaw.core': {'demystifyopenclaw.core.foo': ('core.html#foo', 'demystifyopenclaw/core.py')}}}
