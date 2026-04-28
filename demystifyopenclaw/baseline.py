@@ -4,31 +4,39 @@
 
 # %% auto #0
 __all__ = ['SourceEnum', 'ToolCountClassEnum', 'CompositionDepthEnum', 'PlanningHorizonEnum', 'ScaffoldTypeEnum',
-           'GoalConditionTypeEnum', 'KPIEnum', 'NANOBOT_TOOLS', 'GoalCondition', 'InterventionPolicy',
-           'BaselineTaskSchema', 'save_baseline_tasks', 'load_baseline_tasks', 'fetch_gaia', 'filter_gaia_tasks',
-           'map_gaia_tools', 'map_gaia_row']
+           'ToolSourceEnum', 'GoalConditionTypeEnum', 'KPIEnum', 'ReferenceContext', 'ToolConfig', 'GoalCondition',
+           'InterventionPolicy', 'BaselineTaskSchema', 'save_baseline_tasks', 'load_baseline_tasks', 'fetch_gaia',
+           'filter_gaia_tasks', 'map_gaia_task', 'load_raw_data', 'fetch_bfcl_data', 'map_bfcl_task']
 
 # %% ../nbs/01_baseline.ipynb #62692784
 from datasets import load_dataset
 from pathlib import Path
 from pydantic import BaseModel, Field
-from typing import List, Literal, Any
+from typing import List, Dict, Literal, Any, Optional
+import urllib.request
 import json
 
 # %% ../nbs/01_baseline.ipynb #8321ba94
-# Literal Definitions from Experimental Constraints 
-SourceEnum = Literal["GAIA", "BFCL", "tau-bench"]
-ToolCountClassEnum = Literal["single_tool", "multi_tool"]
-CompositionDepthEnum = Literal["1", "2_3", "4_plus"]
-PlanningHorizonEnum = Literal["short", "medium", "long"]
-ScaffoldTypeEnum = Literal["memory", "prompt_scaffold", "multi_agent", "combined"]
+# --- Literal Definitions ---
+SourceEnum = Literal["GAIA", "BFCL", "tau-bench"]               # Dataset or origin of the task
+ToolCountClassEnum = Literal["single_tool", "multi_tool"]       # Number of tools required for task completion
+CompositionDepthEnum = Literal["1", "2_3", "4_plus"]            # Depth of reasoning/composition required
+PlanningHorizonEnum = Literal["short", "medium", "long"]        # Temporal aspect of the task (e.g., number of steps, time to completion)
+ScaffoldTypeEnum = Literal["memory", "prompt_scaffold", \
+                           "multi_agent", "combined"]           # Types of scaffolding available
+ToolSourceEnum = Literal["default", "custom"]                   # Source of the tools provided for the task
+
+# Methods for evaluating task completion
 GoalConditionTypeEnum = Literal[
     "text_match", 
     "file_creation", 
     "json_state_match", 
     "exit_code", 
-    "answer_set_match"
+    "answer_set_match",
+    "llm_judge" 
 ]
+
+# Key Performance Indicators (KPIs) this task is designed to evaluate
 KPIEnum = Literal[
     "Reasoning-First Success Rate",
     "Soft-Scaffolding Gain",
@@ -44,18 +52,47 @@ KPIEnum = Literal[
     "Plan Length vs Failure"
 ]
 
-# Nested Pydantic Models
+# --- Nested Pydantic Models ---
+class ReferenceContext(BaseModel):
+    """Stores ground-truth data, expected paths, and annotator warnings for the evaluator."""
+    expected_tool_calls: Optional[List[Dict[str, Any]]] = Field(
+        default=None, description="Expected JSON payloads for tools (e.g., from BFCL)"
+    )
+    annotator_notes: Optional[str] = Field(
+        default=None, description="Hints, trajectories, or temporal warnings from datasets like GAIA"
+    )
+    expected_final_answer: Optional[str] = Field(
+        default=None, description="The final conclusion or string the agent should reach"
+    )
+
+class ToolConfig(BaseModel):
+    """Encapsulates all logic for how the agent receives its tools."""
+    source: ToolSourceEnum = Field(
+        default="default",
+        description="Flag to tell the evaluator which toolset to load."
+    )
+    custom_tools: Optional[List[Dict[str, Any]]] = Field(
+        default=None, 
+        description="Only populated if source is 'custom' (e.g., BFCL mock schemas)."
+    )
+
 class GoalCondition(BaseModel):
     type: GoalConditionTypeEnum
-    target: Any  # Can be a string, dict (for json_state), or int (for exit_code)
-    match_mode: Literal["exact", "bounded", "includes"]
+    target: Any  # Can be a string, dict, int, or point to "reference_context"
+    # Match modes for text-based conditions or LLM evaluation criteria
+    match_mode: Literal["exact", "bounded", "includes", "rubric_eval"] = Field(
+        default="exact", description="How to evaluate the goal condition for text-based tasks"
+    )
+    eval_rubric: Optional[str] = Field(
+        default=None, description="Explicit instructions for an LLM Judge"
+    )
 
 class InterventionPolicy(BaseModel):
     reasoning_first: bool = True
     soft_scaffold_allowed: List[ScaffoldTypeEnum] = Field(default_factory=list)
     hard_fallback_allowed: bool = False
 
-# Main Baseline Task Schema 
+# --- Main Baseline Task Schema ---
 class BaselineTaskSchema(BaseModel):
     """
     Schema for tasks defined in baseline.json
@@ -75,31 +112,17 @@ class BaselineTaskSchema(BaseModel):
     planning_horizon: PlanningHorizonEnum
     cross_api_mashup: bool
 
-    available_tools_label: List[str]
+    # Upgraded to accept full JSON schemas (OpenAI style) instead of just string labels
+    tool_config: ToolConfig = Field(default_factory=ToolConfig)
+
+    # New Vault for Ground Truth and Context
+    reference_context: Optional[ReferenceContext] = None
 
     goal_condition: GoalCondition
     
-    # Preference for "automatic" over human judgment as per design principles
-    judge_mode: Literal["automatic", "manual"] = "automatic"
+    judge_mode: Literal["automatic", "manual", "llm_evaluator"] = "automatic"
     risk_tags: List[str]
-
     intervention_policy: InterventionPolicy
-
-# %% ../nbs/01_baseline.ipynb #4ebb5452
-NANOBOT_TOOLS = [
-    "cron",
-    "edit_file",
-    "exec",
-    "glob",
-    "grep",
-    "list_dir",
-    "message",
-    "read_file",
-    "spawn",
-    "web_fetch",
-    "web_search",
-    "write_file"
-]
 
 # %% ../nbs/01_baseline.ipynb #9d2f87b7
 def save_baseline_tasks(baseline_tasks: List[BaselineTaskSchema], path: Path | str = "data/baseline_tasks.json"):
@@ -172,50 +195,9 @@ def filter_gaia_tasks(
     
     return filtered
 
-# %% ../nbs/01_baseline.ipynb #6ad79535
-def map_gaia_tools(
-    tool_name: str,
-):
-    if not tool_name:
-        return None
-        
-    t = tool_name.lower().strip('. ')
-    if t in ["none", "no tools required"]:
-        return None
-    if t in NANOBOT_TOOLS:
-        return t
-
-    # 1. Web Navigation & Fetching (Direct URLs, Wikipedia, Archives)
-    if any(keyword in t for keyword in ["browser", "archive", "wikipedia", "journal"]):
-        return "web_fetch"
-
-    # 2. Web Searching (Google, generic search engines)
-    if "search" in t:
-        return "web_search"
-
-    # 3. Code Execution & Computation (Python, calculators, compiling, custom scripts)
-    # Since your agent has 'exec', it can use bash/python to do math and text reversal natively.
-    if any(keyword in t for keyword in [
-        "python", "compiler", "script", "code", "algebra", 
-        "calculator", "counter", "counting"
-    ]):
-        return "exec"
-
-    # 4. File Handling & Editing (Text editors, markdown)
-    if any(keyword in t for keyword in ["file handling", "editor", "markdown"]):
-        return "edit_file"
-
-    # 5. Text Processing (Diffs, NLP)
-    if any(keyword in t for keyword in ["diff", "text processing", "natural language"]):
-        return "grep"
-
-    # Fallback: If something slips through, 'exec' is the safest bet for an LLM agent
-    # because it allows the agent to figure it out using standard Linux/Python commands.
-    return "exec"
-
 # %% ../nbs/01_baseline.ipynb #98b33a23
-def map_gaia_row(task: dict) -> BaselineTaskSchema:
-    """Translates a raw GAIA row into the strict BaselineTaskSchema."""
+def map_gaia_task(task: dict) -> BaselineTaskSchema:
+    """Translates a raw GAIA task into the strict BaselineTaskSchema."""
     if "Annotator Metadata" not in task:
         print(f"Warning: Task {task.get('task_id', 'unknown')} is missing 'Annotator Metadata'. Defaulting to level 1 assumptions.")
         level = 1
@@ -242,13 +224,15 @@ def map_gaia_row(task: dict) -> BaselineTaskSchema:
         tool_class = "multi_tool"
         mashup = True
 
-    # 2. Tool Mapping
-    if "Annotator Metadata" in task and "Tools" in task["Annotator Metadata"]:
-        raw_tools = task["Annotator Metadata"]["Tools"].lower().split("\n")
-        tools = [re.sub(r'^\d+\.\s*', '', item) for item in raw_tools]
-        mapped_tools = list(set(map_gaia_tools(tool) for tool in tools if map_gaia_tools(tool) is not None))
+    # 2. Reference Context Extraction
+    if "Annotator Metadata" in task:
+        reference_context = ReferenceContext(
+            expected_tool_calls=None,
+            annotator_notes=task["Annotator Metadata"].get("Steps", None),
+            expected_final_answer=task.get("Final answer", None)
+        )
     else:
-        mapped_tools = []
+        reference_context = None
 
     # 3. Instantiate and Validate
     return BaselineTaskSchema(
@@ -268,10 +252,11 @@ def map_gaia_row(task: dict) -> BaselineTaskSchema:
         composition_depth=depth,
         planning_horizon=horizon,
         cross_api_mashup=mashup,
-        available_tools_label=mapped_tools,
+        reference_context=reference_context,
+        tool_config=ToolConfig(source="default"),  # Assuming we'll map GAIA tools to a default set
         
         goal_condition={
-            "type": "text_match",
+            "type": "eval_rubric" if level >= 2 else "text_match",
             "target": str(task.get("Final answer", "")),
             "match_mode": "exact"
         },
@@ -282,6 +267,128 @@ def map_gaia_row(task: dict) -> BaselineTaskSchema:
         intervention_policy={
             "reasoning_first": True,
             "soft_scaffold_allowed": ["prompt_scaffold", "memory", "combined"],
+            "hard_fallback_allowed": False
+        }
+    )
+
+# %% ../nbs/01_baseline.ipynb #5656d072
+def load_raw_data(url: str) -> list[dict]:
+    """
+    Fetches a specific BFCL category file directly from the Hugging Face raw dataset repo
+    and loads it line-by-line as a list of JSON objects.
+    """
+    print(f"Fetching data from {url}...")
+    
+    try:
+        # Hugging Face requires a User-Agent header to allow the download
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        response = urllib.request.urlopen(req)
+        
+        result = []
+        # Iterate over the bytes returned by the HTTP response
+        for line_bytes in response:
+            line = line_bytes.decode('utf-8').strip()
+            # Skip any accidental empty lines
+            if line:  
+                result.append(json.loads(line))
+                
+        print(f"Successfully loaded {len(result)} items from the dataset.")
+        return result
+        
+    except Exception as e:
+        print(f"Failed to fetch or load data: {e}")
+        return []
+
+def fetch_bfcl_data(category: str = "simple") -> list[dict]:
+    """
+    Fetches a specific BFCL category file directly from the Hugging Face raw dataset repo
+    and loads it line-by-line as a list of JSON objects.
+    """
+    # Updated URL to point to the raw V3 files hosted on Hugging Face
+    url = f"https://huggingface.co/datasets/gorilla-llm/Berkeley-Function-Calling-Leaderboard/resolve/main/BFCL_v3_{category}.json"
+    answer_url = f"https://huggingface.co/datasets/gorilla-llm/Berkeley-Function-Calling-Leaderboard/resolve/main/possible_answer/BFCL_v3_{category}.json"
+
+    print(f"Fetching BFCL '{category}' data from Hugging Face...")
+    
+    try:
+        prompts = load_raw_data(url)
+        answers = load_raw_data(answer_url)
+        
+        # Assuming both files have the same number of entries and are aligned
+        if len(prompts) != len(answers):
+            print(f"Warning: Mismatch in number of prompts ({len(prompts)}) and answers ({len(answers)}).")
+        
+        # Combine prompts and answers into a single list of dicts
+        combined = []
+        for i in range(min(len(prompts), len(answers))):
+            current_id = prompts[i].get("id", f"item_{i}")
+            if current_id != answers[i].get("id", f"item_{i}"):
+                print(f"Warning: ID mismatch at index {i} (prompt ID: {current_id}, answer ID: {answers[i].get('id', 'unknown')}). Skipping this pair.")
+                continue
+            combined.append({
+                "question": prompts[i]["question"],
+                "function": prompts[i]["function"],
+                "ground_truth": answers[i]["ground_truth"]
+            })
+        
+        print(f"Successfully combined {len(combined)} prompt-answer pairs.")
+        return combined
+        
+        
+    except Exception as e:
+        print(f"Failed to fetch or load BFCL data: {e}")
+        return []
+
+# %% ../nbs/01_baseline.ipynb #ac0592f8
+def map_bfcl_task(task: dict, split: str, difficulty: str) -> BaselineTaskSchema:
+    """Translates a raw BFCL task into the strict BaselineTaskSchema."""
+    # 1. Basic Mappings
+    difficulty = difficulty.lower()
+    if difficulty not in ["easy", "medium", "hard"]:
+        difficulty = "easy"  # Default to easy if unknown
+
+    # 2. Reference Context Extraction
+    reference_context = ReferenceContext(
+        expected_tool_calls=task.get("ground_truth", None),
+        annotator_notes=None,
+        expected_final_answer=None
+    )
+
+    # 3. Tool Configuration Extraction
+    # Assuming the "function" field contains the necessary tool information in a structured format
+    tools = task.get("function", [])
+    tool_config = ToolConfig(
+        source="custom",
+        custom_tools=tools if tools else None
+    )
+
+    # 4. Instantiate and Validate
+    return BaselineTaskSchema(
+        id=task.get("id", "unknown"),
+        source="BFCL",
+        source_split=split,
+        task_family="code_generation",  # Assuming BFCL tasks are primarily code generation
+        difficulty=difficulty,
+        prompt=task["question"][0][0]["content"] if "question" in task and isinstance(task["question"], list) \
+            and len(task["question"]) > 0 and isinstance(task["question"][0], list) and len(task["question"][0]) > 0 \
+            and "content" in task["question"][0][0] else "",
+        primary_kpi=["Tool Selection Accuracy", "Task Completion Rate"],
+        tool_count_class="single_tool" if len(tools) <= 1 else "multi_tool",
+        composition_depth="1" if difficulty == "easy" else ("2_3" if difficulty == "medium" else "4_plus"),
+        planning_horizon="short" if difficulty == "easy" else ("medium" if difficulty == "medium" else "long"),
+        cross_api_mashup=False,  # Assuming BFCL tasks do not require cross-API interactions
+        reference_context=reference_context,
+        tool_config=tool_config,
+        goal_condition={
+            "type": "json_state_match",
+            "target": "reference_context.expected_tool_calls",
+            "match_mode": "exact"
+        },
+        judge_mode="automatic",
+        risk_tags=["code_generation", "tool_usage"],
+        intervention_policy={
+            "reasoning_first": True,
+            "soft_scaffold_allowed": ["prompt_scaffold"],
             "hard_fallback_allowed": False
         }
     )
